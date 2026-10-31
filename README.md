@@ -15,16 +15,19 @@ are excluded; a first run says there is no previous result.
 The test itself uses native `async: true`, so work can continue while it runs.
 A brief **FINISHED** or **FAILED** report arrives at the next safe conversation
 boundary. If the conversation is idle, Codex delivers it on the next user turn;
-hooks cannot update the earlier startup message in place. Local commands
+the warning is visible in Codex CLI's **F2** view. Hooks cannot update the earlier
+startup message in place. Local commands
 show progress immediately, without asking the agent to retrieve results. There
 are no periodic probes, tool guards, task pauses, MCP tools, or dashboard services.
 
 The test sends challenges in clean ephemeral conversations rather than copying
 the task's context. It checks the configured model/provider, not a particular
 response in the main task. ModelTrace reports closed-set probabilities among its
-18 bundled candidates; unseen models can resemble existing candidates. In
-particular, the pinned bank does not include `gpt-6.1-sol`. Its identity remains
-unverified even when a known candidate receives a high score.
+18 bundled candidates; unseen models can resemble existing candidates.
+`gpt-6.1-sol` is an explicit local alias of the existing `gpt-6-astra` reference,
+displayed as `gpt-6-astra/6.1-sol`. A matching result is consistent with that alias
+group; it cannot distinguish its members or prove exact model identity. This
+metadata alias adds no independent `gpt-6.1-sol` samples to the original bank.
 
 ## Install
 
@@ -93,27 +96,27 @@ Example startup notice:
 
 ```text
 ModelTrace · testing in background · !modeltrace status
-Last (this session, 2026-10-31 18:42:50 +08:00): FINISHED · INCONCLUSIVE · configured gpt-6.1-sol · closest reference gpt-6-astra · 2m 47s
+Last (this session, 2026-10-31 18:42:50 +08:00): FINISHED · CONSISTENT · configured gpt-6.1-sol · closest reference gpt-6-astra/6.1-sol · 2m 47s
 ```
 
 Example completion notice:
 
 ```text
-ModelTrace — FINISHED · INCONCLUSIVE · configured gpt-6.1-sol · closest reference gpt-6-astra · 2m 47s
-Reason: Configured model is absent from the reference bank; exact identity is unverified.
+ModelTrace — FINISHED · CONSISTENT · configured gpt-6.1-sol · closest reference gpt-6-astra/6.1-sol · 2m 47s
+Finding: Configured model matches the reference alias group; this does not distinguish its members or prove exact identity.
 Details: !modeltrace status · History: !modeltrace history
 ```
 
 The full report remains available through `!modeltrace status`:
 
 ```text
-ModelTrace — COMPLETED · INCONCLUSIVE
+ModelTrace — COMPLETED · CONSISTENT
 Started: 2026-10-31 18:40:03 +08:00
 Finished: 2026-10-31 18:42:50 +08:00 · Duration: 2m 47s
 Configured: gpt-6.1-sol · openai · xhigh
 Samples: 3/3 valid
-Closest reference: gpt-6-astra
-Reason: Configured model is absent from the reference bank; exact identity is unverified.
+Closest reference: gpt-6-astra/6.1-sol
+Finding: Configured model matches the reference alias group; this does not distinguish its members or prove exact identity.
 ```
 
 Execution status and the fingerprint finding are separate. A completed test can
@@ -160,11 +163,13 @@ the installed copy. Restart Codex and review changed hook definitions in `/hooks
 again when required. The CLI symlink uses this checkout, so editing its scripts
 does not require reinstalling the launcher.
 
-The unmodified scorer, reference bank, and standalone challenge generator are
+The scorer, reference bank, and standalone challenge generator are
 vendored from [xqy2006/ModelTrace](https://github.com/xqy2006/ModelTrace), pinned to
 commit `6cd4a8ff0f3f4e49d6d6969dd2fbadfa1569fde2` under its MIT license.
-`vendor/provenance.json` records checksums. The original ModelTrace Guard runtime
-is not used.
+The scorer and challenge generator are unmodified. The bank has a local alias
+and display-label patch for `gpt-6.1-sol`; its samples and numerical parameters
+are unchanged. `vendor/provenance.json` records both the upstream bank checksum
+and the patched checksum. The original ModelTrace Guard runtime is not used.
 
 The upstream MIT license is preserved at
 [`plugins/modeltrace-session/vendor/LICENSE.ModelTrace`](plugins/modeltrace-session/vendor/LICENSE.ModelTrace).

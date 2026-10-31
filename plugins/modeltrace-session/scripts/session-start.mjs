@@ -21,6 +21,11 @@ export function challenges() {
   return JSON.parse(p.stdout);
 }
 
+export function referenceForModel(bank, model) {
+  const reference = bank.models.find(m => m.id === model || m.aliases?.includes(model));
+  return reference ? { id: reference.id, members: [reference.id, ...(reference.aliases || [])] } : null;
+}
+
 // Prefer the live daemon so a CLI -m or resumed thread model is respected. A
 // standalone app-server can read persisted threads when the CLI has no daemon.
 export async function sourceSettings(input, openClient = connect, readLive = readDaemonThread) {
@@ -49,8 +54,9 @@ export async function probe(input, { openClient = connect, makeChallenges = chal
   const source = await getSettings(input, openClient);
   if (!source) return { status: 'skipped', reason: 'subagent' };
   const bank = JSON.parse(await readFile(path.join(ROOT, 'vendor/unified_bank.json'), 'utf8'));
+  const reference_match = referenceForModel(bank, source.model);
   const samples = [];
-  await onProgress({ source, expected_model_in_bank: bank.models.some(m => m.id === source.model), phase: 'preparing' }, 'Session settings resolved; preparing challenges');
+  await onProgress({ source, reference_match, expected_model_in_bank: !!reference_match, phase: 'preparing' }, 'Session settings resolved; preparing challenges');
   // Independent clean conversations avoid prior sample contamination and match
   // the upstream manual/API test. This tests the configured model/provider; it
   // does not sample the original task's in-flight response or preserve its context.
@@ -79,7 +85,7 @@ export async function probe(input, { openClient = connect, makeChallenges = chal
   await onProgress({ phase: 'analyzing' }, 'Analyzing three valid samples');
   return {
     status: 'completed', source, scope: 'configured-model-independent-conversations',
-    expected_model_in_bank: bank.models.some(m => m.id === source.model),
+    expected_model_in_bank: !!reference_match, reference_match,
     result: analyzeGlobalOutputs(samples, bank), samples,
     caveat: 'Closed-set attribution among the bundled candidates, not proof of model identity. Task context and routing can affect results.',
   };

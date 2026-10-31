@@ -2,7 +2,7 @@ export function finding(record) {
   if (record.status !== 'completed') return null;
   const prediction = record.result?.prediction || record.result?.results?.[0]?.model;
   if (record.expected_model_in_bank !== true || !prediction) return 'inconclusive';
-  return prediction === record.source?.model ? 'consistent' : 'unexpected fingerprint';
+  return prediction === (record.reference_match?.id || record.source?.model) ? 'consistent' : 'unexpected fingerprint';
 }
 
 function findingExplanation(record) {
@@ -11,8 +11,16 @@ function findingExplanation(record) {
     ? 'Reason: Configured model is absent from the reference bank; exact identity is unverified.'
     : 'Reason: Reference coverage or attribution is unavailable.';
   if (outcome === 'unexpected fingerprint') return 'Finding: Closest reference differs from the configured model. This is a statistical signal, not proof of substitution.';
-  if (outcome === 'consistent') return 'Finding: Closest reference matches the configured model; this does not prove identity.';
+  if (outcome === 'consistent') return record.reference_match?.members?.length > 1
+    ? 'Finding: Configured model matches the reference alias group; this does not distinguish its members or prove exact identity.'
+    : 'Finding: Closest reference matches the configured model; this does not prove identity.';
   return null;
+}
+
+function closestReference(record) {
+  const prediction = record.result?.prediction || record.result?.results?.[0]?.model;
+  return prediction ? record.result?.prediction_name
+    || record.result?.results?.find(r => r.model === prediction)?.display_name || prediction : null;
 }
 
 function oneLine(value, limit = 120) {
@@ -25,7 +33,7 @@ export function briefReport(record) {
   const parts = [record.status === 'completed' ? 'FINISHED' : record.status.toUpperCase()];
   if (outcome) parts.push(outcome.toUpperCase());
   parts.push(`configured ${oneLine(record.source?.model || record.configured_model || 'unknown', 80)}`);
-  const prediction = record.result?.prediction || record.result?.results?.[0]?.model;
+  const prediction = closestReference(record);
   if (prediction) parts.push(`closest reference ${oneLine(prediction, 80)}`);
   parts.push(record.interrupted_at_unknown ? 'duration unknown' : duration(record));
   if (record.error) parts.push(`Reason: ${oneLine(record.error)}`);
@@ -84,8 +92,8 @@ export function report(record, { now = Date.now(), details = false } = {}) {
   const completed = record.samples_completed ?? record.samples?.length ?? record.result?.used_outputs;
   lines.push(`Samples: ${completed ?? '?'}/${record.samples_total || 3} valid`);
   if (record.result?.results?.length) {
-    lines.push(`Closest reference: ${record.result.results[0].model}`);
-    lines.push(`Candidate weights (within reference bank): ${record.result.results.slice(0, 3).map(r => `${r.model} ${weight(r.probability)}`).join(', ')}`);
+    lines.push(`Closest reference: ${closestReference(record)}`);
+    lines.push(`Candidate weights (within reference bank): ${record.result.results.slice(0, 3).map(r => `${r.display_name || r.model} ${weight(r.probability)}`).join(', ')}`);
   }
   const explanation = findingExplanation(record);
   if (explanation) lines.push(explanation);
@@ -110,7 +118,7 @@ export function history(runs, { now = Date.now() } = {}) {
   if (!runs.length) return 'No ModelTrace tests recorded.';
   const rows = runs.map(r => [timestamp(r.started_at), r.status.toUpperCase(), finding(r) || '—',
     r.interrupted_at_unknown ? 'unknown' : duration(r, now), r.source?.model || r.configured_model || 'unknown',
-    r.result?.prediction || r.result?.results?.[0]?.model || '—', r.session_id.slice(0, 8), runLabel(r)]);
+    closestReference(r) || '—', r.session_id.slice(0, 8), runLabel(r)]);
   const header = ['STARTED', 'STATUS', 'FINDING', 'DURATION', 'CONFIGURED', 'CLOSEST REFERENCE', 'SESSION', 'RUN'];
   const widths = header.map((h, i) => Math.max(h.length, ...rows.map(r => String(r[i]).length)));
   return [header, ...rows].map(row => row.map((v, i) => String(v).padEnd(widths[i])).join('  ').trimEnd()).join('\n');

@@ -5,6 +5,12 @@
     "fingerprint-core.mjs": "83fa5bd611e18f8339122582335123c8ea168ed242298bb31f4e363abeeb6e4a",
     "challenges.py": "293dc91c849e7d722a3e4850fdcf266a7aa6b5f8cfc629ce73e47d3a850b9fc3",
     "LICENSE.ModelTrace": "238afb57e498990742f84b9ce6167b4e256ac06104a9938ce953bc41c14bea51",
-    "unified_bank.json": "f267d0513aa06981d024ec5394746fceddf44e4e8a75fa6bf8304255f4b32d6d"
+    "unified_bank.json": "786acdfc5ad5250da95a002d241ff5b569863ab0eb7d88bb77d01a12eac79d13"
+  },
+  "patches": {
+    "unified_bank.json": {
+      "upstream_sha256": "f267d0513aa06981d024ec5394746fceddf44e4e8a75fa6bf8304255f4b32d6d",
+      "description": "Add the gpt-6.1-sol alias and shared display label to the existing gpt-6-astra entry. No samples or numerical parameters changed."
+    }
   }
 }

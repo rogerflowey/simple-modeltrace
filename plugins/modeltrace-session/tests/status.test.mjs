@@ -170,6 +170,19 @@ test('completed tests distinguish coverage, a matching fingerprint, and an unexp
   assert.match(report(fixture()), /\d{4}-\d{2}-\d{2} .* [+-]\d{2}:\d{2}/);
 });
 
+test('an explicit model alias is consistent with its reference group and keeps the group label visible', () => {
+  const record = fixture({ expected_model_in_bank: true, source: { model: 'gpt-6.1-sol' },
+    reference_match: { id: 'gpt-6-astra', members: ['gpt-6-astra', 'gpt-6.1-sol'] },
+    result: { prediction: 'gpt-6-astra', prediction_name: 'gpt-6-astra/6.1-sol',
+      results: [{ model: 'gpt-6-astra', display_name: 'gpt-6-astra/6.1-sol', probability: .99 }] } });
+  assert.equal(finding(record), 'consistent');
+  assert.match(completionReport(record), /FINISHED · CONSISTENT.*closest reference gpt-6-astra\/6\.1-sol/);
+  assert.match(completionReport(record), /does not distinguish its members or prove exact identity/);
+  assert.match(report(record), /Closest reference: gpt-6-astra\/6\.1-sol/);
+  assert.equal(finding({ ...record, result: { prediction: 'different-model' } }), 'unexpected fingerprint');
+  assert.equal(finding({ ...record, reference_match: undefined, expected_model_in_bank: false }), 'inconclusive');
+});
+
 test('startup notice is compact, read-only, and never adds model context', async t => {
   const directory = await temporary(t);
   const env = { MODELTRACE_DATA_DIR: directory };

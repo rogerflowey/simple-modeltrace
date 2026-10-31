@@ -1919,7 +1919,8 @@
     },
     {
       "id": "gpt-6-astra",
-      "display_name": "gpt-6-astra",
+      "display_name": "gpt-6-astra/6.1-sol",
+      "aliases": ["gpt-6.1-sol"],
       "family": "gpt",
       "family_name": "GPT",
       "response_count": 36,

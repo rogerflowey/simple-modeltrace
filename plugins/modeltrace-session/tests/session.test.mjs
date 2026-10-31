@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { challenges, probe, runHook, sourceSettings, summary } from '../scripts/session-start.mjs';
+import { challenges, probe, referenceForModel, runHook, sourceSettings, summary } from '../scripts/session-start.mjs';
 import { generate } from '../scripts/client.mjs';
 import { EventEmitter } from 'node:events';
 
@@ -20,6 +20,15 @@ test('uses three full upstream challenges with different lengths', () => {
   assert.equal(list.length, 3);
   assert.equal(new Set(list.map(x => x.expected_count)).size, 3);
   for (const c of list) assert.ok(c.expected_count >= 292 && c.expected_count <= 332);
+});
+
+test('reference aliases match complete model names without accepting partial or extended names', () => {
+  const bank = { models: [{ id: 'gpt-6-astra', aliases: ['gpt-6.1-sol'] }] };
+  const expected = { id: 'gpt-6-astra', members: ['gpt-6-astra', 'gpt-6.1-sol'] };
+  assert.deepEqual(referenceForModel(bank, 'gpt-6.1-sol'), expected);
+  assert.deepEqual(referenceForModel(bank, 'gpt-6-astra'), expected);
+  assert.equal(referenceForModel(bank, 'gpt-6'), null);
+  assert.equal(referenceForModel(bank, 'gpt-6.1-sol-mini'), null);
 });
 
 test('ignores compact, probe processes, other events, and invalid IDs', async t => {
@@ -117,13 +126,14 @@ test('runs three independent probes, scores with the real bank, and flags unseen
   // Synthetic data is only a transport/scorer fixture, never a real fingerprint.
   const text = Array.from({ length: 310 }, (_, i) => 1 + ((i * 97) % 355)).join(',');
   const record = await probe(event, {
-    getSettings: async () => ({ model: 'gpt-6.1-sol', provider: 'openai', effort: 'high', cwd: '/tmp' }),
+    getSettings: async () => ({ model: 'unseen-fixture-model', provider: 'openai', effort: 'high', cwd: '/tmp' }),
     makeChallenges: () => Array.from({ length: 3 }, () => ({ prompt: 'fixture', expected_count: 310 })),
-    openClient: async () => { const c = fixtureClient({ text }); clients.push(c); return c; },
+    openClient: async () => { const c = fixtureClient({ text, model: 'unseen-fixture-model' }); clients.push(c); return c; },
   });
   assert.equal(record.status, 'completed');
   assert.equal(record.result.used_outputs, 3);
   assert.equal(record.expected_model_in_bank, false);
+  assert.equal(record.reference_match, null);
   assert.match(summary(record), /absent from the reference bank/);
   assert.equal(clients.length, 3);
   assert.ok(clients.every(c => c.closed));
@@ -161,7 +171,8 @@ test('a real probe failure preserves settings, its completed sample, and the fai
   assert.equal(record.status, 'failed');
   assert.equal(record.failure_stage, 'Sampling 2/3');
   assert.equal(record.source.model, 'gpt-6.1-sol');
-  assert.equal(record.expected_model_in_bank, false);
+  assert.equal(record.expected_model_in_bank, true);
+  assert.deepEqual(record.reference_match, { id: 'gpt-6-astra', members: ['gpt-6-astra', 'gpt-6.1-sol'] });
   assert.equal(record.samples_completed, 1);
   assert.equal(record.samples[0].text, text);
   assert.equal(clients.length, 2);
