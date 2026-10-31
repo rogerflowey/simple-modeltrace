@@ -1,0 +1,10 @@
+{
+  "repository": "https://github.com/xqy2006/ModelTrace",
+  "commit": "6cd4a8ff0f3f4e49d6d6969dd2fbadfa1569fde2",
+  "files": {
+    "fingerprint-core.mjs": "83fa5bd611e18f8339122582335123c8ea168ed242298bb31f4e363abeeb6e4a",
+    "challenges.py": "293dc91c849e7d722a3e4850fdcf266a7aa6b5f8cfc629ce73e47d3a850b9fc3",
+    "LICENSE.ModelTrace": "238afb57e498990742f84b9ce6167b4e256ac06104a9938ce953bc41c14bea51",
+    "unified_bank.json": "f267d0513aa06981d024ec5394746fceddf44e4e8a75fa6bf8304255f4b32d6d"
+  }
+}

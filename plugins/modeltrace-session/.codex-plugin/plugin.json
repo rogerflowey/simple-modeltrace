@@ -1,0 +1,14 @@
+{
+  "name": "modeltrace-session",
+  "version": "1.1.1",
+  "description": "Background model fingerprint tests with progress, timestamped results, and local history commands.",
+  "author": { "name": "Roger" },
+  "hooks": "./hooks/hooks.json",
+  "interface": {
+    "displayName": "ModelTrace Session",
+    "shortDescription": "Model fingerprint tests with visible status and history",
+    "developerName": "Roger",
+    "category": "Productivity",
+    "capabilities": []
+  }
+}

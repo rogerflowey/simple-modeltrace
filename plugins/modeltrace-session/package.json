@@ -1,0 +1,14 @@
+{
+  "name": "modeltrace-session",
+  "version": "1.1.1",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "bin": { "modeltrace": "./bin/modeltrace" },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "status": "node bin/modeltrace status",
+    "history": "node bin/modeltrace history",
+    "install-cli": "node scripts/install-cli.mjs"
+  }
+}

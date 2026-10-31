@@ -1,0 +1,10 @@
+{
+  "name": "simple-modeltrace",
+  "interface": { "displayName": "Simple ModelTrace" },
+  "plugins": [{
+    "name": "modeltrace-session",
+    "source": { "source": "local", "path": "./plugins/modeltrace-session" },
+    "policy": { "installation": "AVAILABLE", "authentication": "ON_USE" },
+    "category": "Productivity"
+  }]
+}
