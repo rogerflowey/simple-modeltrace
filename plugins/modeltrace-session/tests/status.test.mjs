@@ -183,20 +183,30 @@ test('an explicit model alias is consistent with its reference group and keeps t
   assert.equal(finding({ ...record, reference_match: undefined, expected_model_in_bank: false }), 'inconclusive');
 });
 
-test('startup notice is compact, read-only, and never adds model context', async t => {
+test('startup stays silent without a previous result and never creates history', async t => {
   const directory = await temporary(t);
   const env = { MODELTRACE_DATA_DIR: directory };
   const event = { hook_event_name: 'SessionStart', source: 'startup', session_id: 'thread-one' };
-  const notice = await startupNotice(event, env);
-  assert.match(notice.systemMessage, /testing in background/);
-  assert.doesNotMatch(notice.systemMessage, /STARTING/);
-  assert.match(notice.systemMessage, /!modeltrace status/);
-  assert.match(notice.systemMessage, /Last: no previous result\./);
-  assert.equal(notice.systemMessage.split('\n').length, 2);
-  assert.deepEqual(Object.keys(notice), ['systemMessage']);
+  assert.equal(await startupNotice(event, env), null);
   assert.equal(await startupNotice({ ...event, source: 'compact' }, env), null);
   assert.equal(await startupNotice(event, { ...env, MODELTRACE_SESSION_PROBE: '1' }), null);
   assert.deepEqual(await readdir(directory), []);
+});
+
+test('startup stays silent after a consistent result instead of resurfacing older or other-session failures', async t => {
+  const directory = await temporary(t);
+  const event = { hook_event_name: 'SessionStart', source: 'resume', session_id: 'thread-one' };
+  const env = { MODELTRACE_DATA_DIR: directory };
+  await save(directory, fixture({ run_id: 'older-failure', status: 'failed', started_at: '2026-10-30T10:40:00Z', error: 'old failure' }));
+  await save(directory, fixture({ expected_model_in_bank: true, source: { model: 'known-model' } }));
+  assert.equal(await startupNotice(event, env), null);
+  assert.equal(await startupNotice({ ...event, session_id: 'brand-new' }, env), null);
+  await save(directory, fixture({ session_id: 'another-thread', run_id: 'other-failure', status: 'failed',
+    started_at: '2026-10-31T11:00:00Z', error: 'other session failure' }));
+  assert.equal(await startupNotice(event, env), null);
+  await writeFile(path.join(directory, 'broken.json'), '{broken');
+  const notice = await startupNotice(event, env);
+  assert.match(notice.systemMessage, /history is unreadable/);
 });
 
 test('startup prefers this session’s previous result over newer runs, active tests, and skipped tests', async t => {
@@ -213,6 +223,7 @@ test('startup prefers this session’s previous result over newer runs, active t
   assert.match(notice.systemMessage, /configured unseen-model · closest reference known-model · 2m 47s/);
   assert.doesNotMatch(notice.systemMessage, /RUNNING|SKIPPED|other session failure/);
   assert.equal(notice.systemMessage.split('\n').length, 2);
+  assert.deepEqual(Object.keys(notice), ['systemMessage']);
 });
 
 test('new sessions label a fallback from another session and retain the most recent failure', async t => {
@@ -261,6 +272,45 @@ test('completion emits FINISHED with a brief finding after saving the full resul
   assert.equal(saved.samples_completed, 3);
   assert.ok(saved.finished_at);
   assert.match(report(saved), /ModelTrace — COMPLETED · INCONCLUSIVE/);
+});
+
+test('consistent completions stay silent while status and history retain the result, including model aliases', async t => {
+  for (const reference of [
+    { source: { model: 'known-model' }, result: fixture().result },
+    { source: { model: 'gpt-6.1-sol' }, reference_match: { id: 'gpt-6-astra', members: ['gpt-6-astra', 'gpt-6.1-sol'] },
+      result: { prediction: 'gpt-6-astra', results: [{ model: 'gpt-6-astra', probability: .99 }] } },
+  ]) {
+    const directory = await temporary(t);
+    const event = { hook_event_name: 'SessionStart', source: 'startup', session_id: 'thread-one' };
+    const env = { MODELTRACE_DATA_DIR: directory, CODEX_THREAD_ID: event.session_id };
+    const output = await runHook(event, { directory, env, runProbe: async () => ({
+      status: 'completed', expected_model_in_bank: true, samples_completed: 3, ...reference,
+    }) });
+    assert.equal(output, null);
+    const saved = JSON.parse(await readFile(path.join(directory, 'latest.json'), 'utf8'));
+    assert.equal(saved.status, 'completed');
+    assert.equal(saved.samples_completed, 3);
+    assert.ok(saved.finished_at);
+    const { runs } = await loadRuns({ env });
+    assert.equal(runs.length, 1);
+    assert.equal(finding(runs[0]), 'consistent');
+    assert.match((await command(['status'], env)).output, /COMPLETED · CONSISTENT/);
+    assert.match((await command(['history'], env)).output, /consistent/);
+    assert.equal(await startupNotice(event, env), null);
+    assert.ok(!(await readdir(directory)).some(name => name.endsWith('.lock')));
+  }
+});
+
+test('unexpected fingerprints still emit a warning after saving the result', async t => {
+  const directory = await temporary(t);
+  const event = { hook_event_name: 'SessionStart', source: 'startup', session_id: 'thread-one' };
+  const output = await runHook(event, { directory, env: {}, runProbe: async () => ({
+    status: 'completed', source: fixture().source, expected_model_in_bank: true,
+    result: fixture().result, samples_completed: 3,
+  }) });
+  assert.match(output.systemMessage, /FINISHED · UNEXPECTED FINGERPRINT/);
+  const saved = JSON.parse(await readFile(path.join(directory, 'latest.json'), 'utf8'));
+  assert.equal(finding(saved), 'unexpected fingerprint');
 });
 
 test('brief completion keeps matching and unexpected fingerprints qualified and bounds errors', () => {

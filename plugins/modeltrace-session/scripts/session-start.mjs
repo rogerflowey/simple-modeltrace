@@ -7,7 +7,7 @@ import { analyzeGlobalOutputs, parseNumbers } from '../vendor/fingerprint-core.m
 import { connect, generate } from './client.mjs';
 import { readDaemonThread } from './daemon.mjs';
 import { atomicJson, dataDirectory, loadRuns, workerAlive, workerIdentity } from './records.mjs';
-import { briefReport, completionReport, report, timestamp, phase as describePhase } from './report.mjs';
+import { briefReport, completionReport, finding, report, timestamp, phase as describePhase } from './report.mjs';
 export { atomicJson } from './records.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -102,18 +102,18 @@ function eligible(input, env) {
 
 export async function startupNotice(input, env = process.env) {
   if (!eligible(input, env)) return null;
-  let last = 'Last: no previous result.';
+  let last = null;
   try {
     const { runs, warnings } = await loadRuns({ env });
     const finished = runs.filter(r => ['completed', 'failed', 'interrupted'].includes(r.status));
     const previous = finished.find(r => r.session_id === input.session_id) || finished[0];
-    if (previous) {
+    if (previous && finding(previous) !== 'consistent') {
       const scope = previous.session_id === input.session_id ? 'this session' : 'another session';
       const time = timestamp(previous.finished_at || previous.started_at);
       last = `Last (${scope}, ${time}): ${briefReport(previous)}`;
     } else if (warnings.length) last = 'Last: saved history is unreadable · !modeltrace history';
   } catch { last = 'Last: saved history is unavailable · !modeltrace history'; }
-  return { systemMessage: `ModelTrace · testing in background · !modeltrace status\n${last}` };
+  return last ? { systemMessage: `ModelTrace · testing in background · !modeltrace status\n${last}` } : null;
 }
 
 export async function runHook(input, { directory, runProbe = probe, env = process.env } = {}) {
@@ -161,7 +161,7 @@ export async function runHook(input, { directory, runProbe = probe, env = proces
     record.events.push({ at: record.finished_at, message: record.status === 'failed' ? `Failed: ${record.error}` : record.status });
     await atomicJson(filename, record);
     await atomicJson(path.join(directory, 'latest.json'), record);
-    if (record.status === 'skipped') return null;
+    if (record.status === 'skipped' || finding(record) === 'consistent') return null;
     return { systemMessage: completionReport(record) };
   } finally {
     await lock.close();
