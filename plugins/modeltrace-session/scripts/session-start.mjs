@@ -8,6 +8,7 @@ import { connect, generate } from './client.mjs';
 import { readDaemonThread } from './daemon.mjs';
 import { atomicJson, dataDirectory, loadRuns, workerAlive, workerIdentity } from './records.mjs';
 import { briefReport, completionReport, finding, report, timestamp, phase as describePhase } from './report.mjs';
+import { sampleUsage } from './usage.mjs';
 export { atomicJson } from './records.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -56,6 +57,7 @@ export async function probe(input, { openClient = connect, makeChallenges = chal
   const bank = JSON.parse(await readFile(path.join(ROOT, 'vendor/unified_bank.json'), 'utf8'));
   const reference_match = referenceForModel(bank, source.model);
   const samples = [];
+  const usageSamples = [];
   await onProgress({ source, reference_match, expected_model_in_bank: !!reference_match, phase: 'preparing' }, 'Session settings resolved; preparing challenges');
   // Independent clean conversations avoid prior sample contamination and match
   // the upstream manual/API test. This tests the configured model/provider; it
@@ -74,10 +76,18 @@ export async function probe(input, { openClient = connect, makeChallenges = chal
           || (source.effort && started.reasoningEffort !== source.effort)) {
         throw new Error('Probe did not preserve the source model/provider/effort in an ephemeral thread');
       }
-      const text = await generate(client, started.thread.id, challenge.prompt);
+      const usageSample = { sample_index: usageSamples.length + 1, thread_id: started.thread.id, tokens: null, finished: false };
+      usageSamples.push(usageSample);
+      await onProgress({ usage: sampleUsage(usageSamples) }, `Sample ${usageSample.sample_index}/3 usage tracking started`);
+      const text = await generate(client, started.thread.id, challenge.prompt, undefined, {
+        onUsage: async (tokens, { finished }) => {
+          Object.assign(usageSample, { tokens, finished });
+          await onProgress({ usage: sampleUsage(usageSamples) }, `Sample ${usageSample.sample_index}/3 token usage updated`);
+        },
+      });
       const count = parseNumbers(text).length;
       if (count < Math.max(80, Math.ceil(challenge.expected_count * 0.55))) throw new Error('Fingerprint answer was refused or truncated');
-      samples.push({ ...challenge, text, parsed_numbers: count });
+      samples.push({ ...challenge, text, parsed_numbers: count, usage: usageSample.tokens });
       await onProgress({ samples: [...samples], samples_completed: samples.length }, `Sample ${samples.length}/3 validated (${count} numbers)`);
     } finally { await client.close(); }
   }
@@ -86,7 +96,7 @@ export async function probe(input, { openClient = connect, makeChallenges = chal
   return {
     status: 'completed', source, scope: 'configured-model-independent-conversations',
     expected_model_in_bank: !!reference_match, reference_match,
-    result: analyzeGlobalOutputs(samples, bank), samples,
+    result: analyzeGlobalOutputs(samples, bank), samples, usage: sampleUsage(usageSamples),
     caveat: 'Closed-set attribution among the bundled candidates, not proof of model identity. Task context and routing can affect results.',
   };
 }
@@ -140,10 +150,11 @@ export async function runHook(input, { directory, runProbe = probe, env = proces
     const runId = `${Date.now()}-${randomUUID()}`;
     const startedAt = new Date().toISOString();
     await lock.writeFile(JSON.stringify({ ...worker, run_id: runId, at: startedAt }));
-    record = { schema_version: 2, session_id: input.session_id, source_event: input.source, run_id: runId,
+    record = { schema_version: 3, session_id: input.session_id, source_event: input.source, run_id: runId,
       started_at: startedAt, updated_at: startedAt, deadline_at: new Date(Date.parse(startedAt) + 600_000).toISOString(),
       status: 'running', phase: 'starting', worker,
       configured_model: input.model || null, samples_completed: 0, samples_total: 3, samples: [],
+      usage: sampleUsage([]),
       events: [{ at: startedAt, message: 'Reading session settings' }] };
     const filename = path.join(directory, `${input.session_id}-${runId}.json`);
     await atomicJson(filename, record);

@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
+import { normalizeTokenUsage } from './usage.mjs';
 
 // Every probe has its own app-server process. Closing it destroys its ephemeral
 // threads. Credentials are handled entirely by Codex, never by this plugin.
@@ -92,9 +93,11 @@ export async function connect({ env = process.env } = {}) {
   } catch (error) { await client.close(); throw error; }
 }
 
-export async function generate(client, threadId, prompt, timeout = 150000) {
+export async function generate(client, threadId, prompt, timeout = 150000, { onUsage = async () => {} } = {}) {
   let resolve, reject;
   let text = null;
+  let tokens = null, finished = false;
+  let usageProgress = Promise.resolve();
   const unphased = [];
   const result = new Promise((yes, no) => { resolve = yes; reject = no; });
   result.catch(() => {});
@@ -102,6 +105,14 @@ export async function generate(client, threadId, prompt, timeout = 150000) {
   const listener = m => {
     const p = m.params;
     if (p?.threadId !== threadId) return;
+    if (m.method === 'thread/tokenUsage/updated') {
+      const snapshot = normalizeTokenUsage(p.tokenUsage?.total);
+      if (snapshot) {
+        tokens = snapshot;
+        usageProgress = usageProgress.then(() => onUsage(snapshot, { finished: false }));
+        usageProgress.catch(reject);
+      }
+    }
     if (m.method === 'item/started' && !['userMessage', 'agentMessage', 'reasoning'].includes(p.item?.type)) {
       reject(new Error('Fingerprint sample attempted a tool; sample rejected'));
     }
@@ -111,6 +122,7 @@ export async function generate(client, threadId, prompt, timeout = 150000) {
     }
     if (m.method === 'error' && !p.willRetry) reject(new Error('Codex fingerprint inference failed'));
     if (m.method === 'turn/completed') {
+      finished = true;
       if (p.turn?.status !== 'completed') reject(new Error('Fingerprint turn did not complete'));
       else resolve(text ?? (unphased.length === 1 ? unphased[0] : null));
     }
@@ -128,5 +140,7 @@ export async function generate(client, threadId, prompt, timeout = 150000) {
     clearTimeout(timer);
     client.listeners.delete(listener);
     client.child.removeListener('exit', onExit);
+    await usageProgress;
+    await onUsage(tokens, { finished });
   }
 }

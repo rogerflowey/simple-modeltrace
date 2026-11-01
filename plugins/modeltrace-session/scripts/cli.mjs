@@ -1,13 +1,15 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { loadRuns } from './records.mjs';
-import { finding, history, report, runLabel } from './report.mjs';
+import { finding, history, report, runLabel, usageReport } from './report.mjs';
+import { aggregateUsage } from './usage.mjs';
 
-const HELP = `Usage: modeltrace [status|history|show RUN|watch] [options]
+const HELP = `Usage: modeltrace [status|history|show RUN|watch|usage] [options]
 
   status             Show the newest test for this Codex session
   history            Show recent tests (newest first)
   show RUN           Show a saved test and its timeline; accepts the short run ID
   watch              Follow progress until the newest test finishes
+  usage              Sum plugin token usage across all tests in the selected scope
 
   --all              Include all sessions (default outside Codex)
   --session ID       Select a particular session
@@ -16,13 +18,13 @@ const HELP = `Usage: modeltrace [status|history|show RUN|watch] [options]
   --json             Print structured records, including raw samples
   --help             Show this help
 
-Inside Codex: !modeltrace status  or  !modeltrace history
+Inside Codex: !modeltrace status, !modeltrace history, or !modeltrace usage
 These commands read local results and never start a fingerprint test.`;
 
 function options(args, env) {
   const result = { command: 'status', limit: 10, sessionId: env.CODEX_THREAD_ID || null };
   if (args[0] && !args[0].startsWith('-')) result.command = args.shift();
-  if (!['status', 'history', 'show', 'watch'].includes(result.command)) throw new Error(`Unknown command: ${result.command}`);
+  if (!['status', 'history', 'show', 'watch', 'usage'].includes(result.command)) throw new Error(`Unknown command: ${result.command}`);
   if (result.command === 'show') {
     result.runId = args.shift();
     if (!result.runId || result.runId.startsWith('-')) throw new Error('show requires a run ID');
@@ -56,11 +58,18 @@ export async function main(args = process.argv.slice(2), {
   let previous;
   do {
     const data = await loadRuns({ env, sessionId: opts.sessionId, directories: opts.directory ? [opts.directory] : undefined });
+    const scope = opts.sessionId ? `Scope: session ${opts.sessionId}` : 'Scope: all sessions';
+    if (opts.command === 'usage') {
+      const usage = aggregateUsage(data.runs);
+      stdout.write((opts.json ? JSON.stringify({ session_id: opts.sessionId, usage, warnings: data.warnings }, null, 2)
+        : `${scope}\n${usageReport(usage)}`) + '\n');
+      if (!opts.json) for (const warning of data.warnings) stderr.write(`ModelTrace: ${warning}\n`);
+      return;
+    }
     const selected = opts.command === 'show'
       ? data.runs.filter(r => r.run_id === opts.runId || runLabel(r) === opts.runId || r.run_id.startsWith(opts.runId)) : data.runs;
     if (opts.command === 'show' && selected.length !== 1) throw new Error(selected.length ? 'Run ID is ambiguous; use the full ID' : `No run found: ${opts.runId}`);
     const runs = opts.command === 'history' ? selected.slice(0, opts.limit) : selected.slice(0, 1);
-    const scope = opts.sessionId ? `Scope: session ${opts.sessionId}` : 'Scope: all sessions';
     const output = opts.json ? JSON.stringify({ session_id: opts.sessionId, runs: runs.map(r => ({ ...r, finding: finding(r) })), warnings: data.warnings }, null, 2)
       : `${scope}\n${opts.command === 'history' ? `${history(runs)}\nShowing ${runs.length} of ${selected.length} tests. Details: !modeltrace show RUN`
         : runs[0] ? report(runs[0], { details: opts.command === 'show' })

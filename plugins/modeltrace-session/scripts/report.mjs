@@ -1,3 +1,31 @@
+import { recordedUsage } from './usage.mjs';
+
+const tokenCount = value => Number.isSafeInteger(value) && value >= 0 ? value.toLocaleString('en-US') : 'unknown';
+
+function tokenBreakdown(tokens) {
+  return `${tokenCount(tokens.total_tokens)} total tokens · ${tokenCount(tokens.input_tokens)} input (${tokenCount(tokens.cached_input_tokens)} cached) · ${tokenCount(tokens.output_tokens)} output (${tokenCount(tokens.reasoning_output_tokens)} reasoning)`
+    + (tokens.cache_write_input_tokens ? ` · ${tokenCount(tokens.cache_write_input_tokens)} cache write input` : '');
+}
+
+function usageReportLine(record) {
+  const usage = recordedUsage(record);
+  if (!usage) return `Usage: unavailable (${record.usage ? 'Codex has not reported token counts' : 'not recorded for this run'})`;
+  return `Usage: ${tokenBreakdown(usage.totals)}${usage.complete ? '' : ' · partial'}`
+    + `\nUsage coverage: ${usage.samples_reported}/${usage.samples_started} samples reported`;
+}
+
+export function usageReport(summary) {
+  if (!summary.runs_total) return 'No ModelTrace tests recorded.';
+  const lines = ['ModelTrace — PLUGIN USAGE', summary.totals ? tokenBreakdown(summary.totals) : 'Token usage unavailable.',
+    `Coverage: ${summary.runs_with_usage}/${summary.runs_total} runs with usage · ${summary.runs_partial} partial · ${summary.runs_without_usage} unavailable`];
+  for (const group of summary.by_model) {
+    lines.push(`${group.model} · ${group.provider}: ${group.totals ? `${tokenCount(group.totals.total_tokens)} tokens` : 'unavailable'} · ${group.runs_with_usage}/${group.runs_total} runs with usage${group.runs_partial ? ` · ${group.runs_partial} partial` : ''}`);
+  }
+  lines.push('Totals include reported plugin probe tokens, including failed samples. Unreported usage is excluded.',
+    'Cached input and reasoning are included in input and output respectively. Token counts are not a billing estimate.');
+  return lines.join('\n');
+}
+
 export function finding(record) {
   if (record.status !== 'completed') return null;
   const prediction = record.result?.prediction || record.result?.results?.[0]?.model;
@@ -36,6 +64,8 @@ export function briefReport(record) {
   const prediction = closestReference(record);
   if (prediction) parts.push(`closest reference ${oneLine(prediction, 80)}`);
   parts.push(record.interrupted_at_unknown ? 'duration unknown' : duration(record));
+  const usage = recordedUsage(record);
+  if (usage) parts.push(`${tokenCount(usage.totals.total_tokens)} tokens${usage.complete ? '' : ' (partial)'}`);
   if (record.error) parts.push(`Reason: ${oneLine(record.error)}`);
   return parts.join(' · ');
 }
@@ -45,7 +75,7 @@ export function completionReport(record) {
   const explanation = findingExplanation(record);
   if (explanation) lines.push(explanation);
   if (record.failure_stage) lines.push(`Failed during: ${oneLine(record.failure_stage)}`);
-  lines.push('Details: !modeltrace status · History: !modeltrace history');
+  lines.push('Details: !modeltrace status · History: !modeltrace history · Usage: !modeltrace usage');
   return lines.join('\n');
 }
 
@@ -91,6 +121,7 @@ export function report(record, { now = Date.now(), details = false } = {}) {
   lines.push(`Configured: ${record.source?.model || record.configured_model || 'unknown'}${record.source ? ` · ${record.source.provider} · ${record.source.effort || 'default effort'}` : ''}`);
   const completed = record.samples_completed ?? record.samples?.length ?? record.result?.used_outputs;
   lines.push(`Samples: ${completed ?? '?'}/${record.samples_total || 3} valid`);
+  lines.push(usageReportLine(record));
   if (record.result?.results?.length) {
     lines.push(`Closest reference: ${closestReference(record)}`);
     lines.push(`Candidate weights (within reference bank): ${record.result.results.slice(0, 3).map(r => `${r.display_name || r.model} ${weight(r.probability)}`).join(', ')}`);
@@ -106,6 +137,12 @@ export function report(record, { now = Date.now(), details = false } = {}) {
     lines.push('Timeline:');
     for (const event of record.events) lines.push(`  ${timestamp(event.at)} · ${event.message}`);
   }
+  if (details && record.usage?.samples?.length) {
+    lines.push('Sample usage:');
+    for (const sample of record.usage.samples) {
+      lines.push(`  Sample ${sample.sample_index}: ${sample.tokens ? tokenBreakdown(sample.tokens) : 'unavailable'}${sample.finished ? '' : ' · partial'}`);
+    }
+  }
   if (record.filename) lines.push(`Result: ${record.filename}`);
   return lines.join('\n');
 }
@@ -118,8 +155,9 @@ export function history(runs, { now = Date.now() } = {}) {
   if (!runs.length) return 'No ModelTrace tests recorded.';
   const rows = runs.map(r => [timestamp(r.started_at), r.status.toUpperCase(), finding(r) || '—',
     r.interrupted_at_unknown ? 'unknown' : duration(r, now), r.source?.model || r.configured_model || 'unknown',
-    closestReference(r) || '—', r.session_id.slice(0, 8), runLabel(r)]);
-  const header = ['STARTED', 'STATUS', 'FINDING', 'DURATION', 'CONFIGURED', 'CLOSEST REFERENCE', 'SESSION', 'RUN'];
+    closestReference(r) || '—', recordedUsage(r) ? `${tokenCount(r.usage.totals.total_tokens)}${r.usage.complete ? '' : ' (partial)'}` : '—',
+    r.session_id.slice(0, 8), runLabel(r)]);
+  const header = ['STARTED', 'STATUS', 'FINDING', 'DURATION', 'CONFIGURED', 'CLOSEST REFERENCE', 'TOKENS', 'SESSION', 'RUN'];
   const widths = header.map((h, i) => Math.max(h.length, ...rows.map(r => String(r[i]).length)));
   return [header, ...rows].map(row => row.map((v, i) => String(v).padEnd(widths[i])).join('  ').trimEnd()).join('\n');
 }
