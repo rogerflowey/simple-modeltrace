@@ -39,7 +39,7 @@ test('status sees active progress and partial samples, then a failure in the sam
   const started = new Promise(resolve => { ready = resolve; });
   const work = runHook({ hook_event_name: 'SessionStart', source: 'resume', session_id: 'thread-one' }, {
     directory, env: {}, runProbe: async (_input, { onProgress }) => {
-      await onProgress({ phase: 'sampling', sample_index: 2, samples_completed: 1, samples: [{ text: 'saved first sample' }],
+      await onProgress({ phase: 'sampling', sample_index: 2, samples_completed: 1, samples_total: 3, samples: [{ text: 'saved first sample' }],
         source: fixture().source }, 'Sampling 2/3');
       ready(); await gate;
       throw new Error('Second sample timed out');
@@ -144,7 +144,7 @@ test('malformed results are reported without hiding valid history', async t => {
 
 test('watch emits changes in captured shell output and exits when the test finishes', async t => {
   const directory = await temporary(t);
-  const record = fixture({ status: 'running', phase: 'sampling', sample_index: 3, samples_completed: 2,
+  const record = fixture({ status: 'running', phase: 'sampling', sample_index: 3, samples_completed: 2, samples_total: 3,
     started_at: new Date().toISOString(), finished_at: undefined, worker: await workerIdentity() });
   await save(directory, record);
   let sleeps = 0;

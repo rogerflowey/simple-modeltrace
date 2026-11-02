@@ -13,10 +13,11 @@ export { atomicJson } from './records.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const DATA = dataDirectory();
+export const SAMPLE_COUNT = 1;
 const SCOPE = 'This is a standalone ModelTrace numerical fingerprint sample, authorized by the session-start plugin. Complete only the numerical task below. Do not call any tools.';
 
 export function challenges() {
-  const code = 'import json,runpy,sys; m=runpy.run_path(sys.argv[1]); print(json.dumps(m["generate_challenges"](3)))';
+  const code = `import json,runpy,sys; m=runpy.run_path(sys.argv[1]); print(json.dumps(m["generate_challenges"](${SAMPLE_COUNT})))`;
   const p = spawnSync('python3', ['-c', code, path.join(ROOT, 'vendor/challenges.py')], { encoding: 'utf8', timeout: 10000 });
   if (p.status !== 0) throw new Error('Python 3 is required to generate the ModelTrace challenges');
   return JSON.parse(p.stdout);
@@ -58,12 +59,14 @@ export async function probe(input, { openClient = connect, makeChallenges = chal
   const reference_match = referenceForModel(bank, source.model);
   const samples = [];
   const usageSamples = [];
-  await onProgress({ source, reference_match, expected_model_in_bank: !!reference_match, phase: 'preparing' }, 'Session settings resolved; preparing challenges');
+  const challengeList = makeChallenges();
+  const total = challengeList.length;
+  await onProgress({ source, reference_match, expected_model_in_bank: !!reference_match, phase: 'preparing', samples_total: total }, 'Session settings resolved; preparing challenges');
   // Independent clean conversations avoid prior sample contamination and match
   // the upstream manual/API test. This tests the configured model/provider; it
   // does not sample the original task's in-flight response or preserve its context.
-  for (const challenge of makeChallenges()) {
-    await onProgress({ phase: 'sampling', sample_index: samples.length + 1, sample_started_at: new Date().toISOString() }, `Sampling ${samples.length + 1}/3`);
+  for (const challenge of challengeList) {
+    await onProgress({ phase: 'sampling', sample_index: samples.length + 1, samples_total: total, sample_started_at: new Date().toISOString() }, `Sampling ${samples.length + 1}/${total}`);
     const client = await openClient();
     try {
       const started = await client.request('thread/start', {
@@ -78,21 +81,21 @@ export async function probe(input, { openClient = connect, makeChallenges = chal
       }
       const usageSample = { sample_index: usageSamples.length + 1, thread_id: started.thread.id, tokens: null, finished: false };
       usageSamples.push(usageSample);
-      await onProgress({ usage: sampleUsage(usageSamples) }, `Sample ${usageSample.sample_index}/3 usage tracking started`);
+      await onProgress({ usage: sampleUsage(usageSamples), samples_total: total }, `Sample ${usageSample.sample_index}/${total} usage tracking started`);
       const text = await generate(client, started.thread.id, challenge.prompt, undefined, {
         onUsage: async (tokens, { finished }) => {
           Object.assign(usageSample, { tokens, finished });
-          await onProgress({ usage: sampleUsage(usageSamples) }, `Sample ${usageSample.sample_index}/3 token usage updated`);
+          await onProgress({ usage: sampleUsage(usageSamples), samples_total: total }, `Sample ${usageSample.sample_index}/${total} token usage updated`);
         },
       });
       const count = parseNumbers(text).length;
       if (count < Math.max(80, Math.ceil(challenge.expected_count * 0.55))) throw new Error('Fingerprint answer was refused or truncated');
       samples.push({ ...challenge, text, parsed_numbers: count, usage: usageSample.tokens });
-      await onProgress({ samples: [...samples], samples_completed: samples.length }, `Sample ${samples.length}/3 validated (${count} numbers)`);
+      await onProgress({ samples: [...samples], samples_completed: samples.length, samples_total: total }, `Sample ${samples.length}/${total} validated (${count} numbers)`);
     } finally { await client.close(); }
   }
-  if (samples.length !== 3) throw new Error('Expected exactly three valid fingerprint samples');
-  await onProgress({ phase: 'analyzing' }, 'Analyzing three valid samples');
+  if (samples.length !== total) throw new Error(`Expected exactly ${total} valid fingerprint sample${total === 1 ? '' : 's'}`);
+  await onProgress({ phase: 'analyzing' }, `Analyzing ${total} valid sample${total === 1 ? '' : 's'}`);
   return {
     status: 'completed', source, scope: 'configured-model-independent-conversations',
     expected_model_in_bank: !!reference_match, reference_match,
@@ -153,7 +156,7 @@ export async function runHook(input, { directory, runProbe = probe, env = proces
     record = { schema_version: 3, session_id: input.session_id, source_event: input.source, run_id: runId,
       started_at: startedAt, updated_at: startedAt, deadline_at: new Date(Date.parse(startedAt) + 600_000).toISOString(),
       status: 'running', phase: 'starting', worker,
-      configured_model: input.model || null, samples_completed: 0, samples_total: 3, samples: [],
+      configured_model: input.model || null, samples_completed: 0, samples_total: SAMPLE_COUNT, samples: [],
       usage: sampleUsage([]),
       events: [{ at: startedAt, message: 'Reading session settings' }] };
     const filename = path.join(directory, `${input.session_id}-${runId}.json`);

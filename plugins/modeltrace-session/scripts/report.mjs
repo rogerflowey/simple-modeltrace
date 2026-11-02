@@ -97,8 +97,12 @@ export function timestamp(value) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())} ${offset < 0 ? '-' : '+'}${pad(Math.floor(Math.abs(offset) / 60))}:${pad(Math.abs(offset) % 60)}`;
 }
 
+function sampleTotal(record) {
+  return record.samples_total ?? record.samples?.length ?? 1;
+}
+
 export function phase(record) {
-  if (record.phase === 'sampling') return `Sampling ${record.sample_index}/${record.samples_total || 3}`;
+  if (record.phase === 'sampling') return `Sampling ${record.sample_index}/${sampleTotal(record)}`;
   return ({ starting: 'Reading session settings', preparing: 'Preparing challenges', analyzing: 'Analyzing fingerprints' })[record.phase]
     || (record.status === 'running' ? 'Running (legacy record has no progress details)' : record.phase || record.status);
 }
@@ -120,7 +124,7 @@ export function report(record, { now = Date.now(), details = false } = {}) {
   if (record.updated_at) lines.push(`Last progress: ${timestamp(record.updated_at)}`);
   lines.push(`Configured: ${record.source?.model || record.configured_model || 'unknown'}${record.source ? ` · ${record.source.provider} · ${record.source.effort || 'default effort'}` : ''}`);
   const completed = record.samples_completed ?? record.samples?.length ?? record.result?.used_outputs;
-  lines.push(`Samples: ${completed ?? '?'}/${record.samples_total || 3} valid`);
+  lines.push(`Samples: ${completed ?? '?'}/${sampleTotal(record)} valid`);
   lines.push(usageReportLine(record));
   if (record.result?.results?.length) {
     lines.push(`Closest reference: ${closestReference(record)}`);

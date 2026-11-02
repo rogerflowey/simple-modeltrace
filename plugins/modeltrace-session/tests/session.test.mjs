@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { challenges, probe, referenceForModel, runHook, sourceSettings, summary } from '../scripts/session-start.mjs';
+import { challenges, probe, referenceForModel, runHook, SAMPLE_COUNT, sourceSettings, summary } from '../scripts/session-start.mjs';
 import { generate } from '../scripts/client.mjs';
 import { EventEmitter } from 'node:events';
 
@@ -15,10 +15,11 @@ async function temporary(t) {
   return directory;
 }
 
-test('uses three full upstream challenges with different lengths', () => {
+test('uses one full upstream challenge by default', () => {
   const list = challenges();
-  assert.equal(list.length, 3);
-  assert.equal(new Set(list.map(x => x.expected_count)).size, 3);
+  assert.equal(SAMPLE_COUNT, 1);
+  assert.equal(list.length, 1);
+  assert.equal(new Set(list.map(x => x.expected_count)).size, 1);
   for (const c of list) assert.ok(c.expected_count >= 292 && c.expected_count <= 332);
 });
 
@@ -121,21 +122,21 @@ test('handles notifications before the turn/start reply and rejects tool samples
   await assert.rejects(generate(fixtureClient({ text: '123', tool: true }), 'ephemeral', 'prompt'), /attempted a tool/);
 });
 
-test('runs three independent probes, scores with the real bank, and flags unseen models', async () => {
+test('runs one independent probe, scores with the real bank, and flags unseen models', async () => {
   const clients = [];
   // Synthetic data is only a transport/scorer fixture, never a real fingerprint.
   const text = Array.from({ length: 310 }, (_, i) => 1 + ((i * 97) % 355)).join(',');
   const record = await probe(event, {
     getSettings: async () => ({ model: 'unseen-fixture-model', provider: 'openai', effort: 'high', cwd: '/tmp' }),
-    makeChallenges: () => Array.from({ length: 3 }, () => ({ prompt: 'fixture', expected_count: 310 })),
+    makeChallenges: () => [{ prompt: 'fixture', expected_count: 310 }],
     openClient: async () => { const c = fixtureClient({ text, model: 'unseen-fixture-model' }); clients.push(c); return c; },
   });
   assert.equal(record.status, 'completed');
-  assert.equal(record.result.used_outputs, 3);
+  assert.equal(record.result.used_outputs, 1);
   assert.equal(record.expected_model_in_bank, false);
   assert.equal(record.reference_match, null);
   assert.match(summary(record), /absent from the reference bank/);
-  assert.equal(clients.length, 3);
+  assert.equal(clients.length, 1);
   assert.ok(clients.every(c => c.closed));
 });
 
