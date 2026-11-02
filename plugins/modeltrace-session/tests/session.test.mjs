@@ -70,6 +70,50 @@ test('records failures and reports them without blocking the session', async t =
   assert.equal(output.hookSpecificOutput, undefined);
 });
 
+const NOW = Date.parse('2026-11-03T01:30:00.000Z');
+
+function previousRun(overrides = {}) {
+  return {
+    session_id: 'previous-thread', run_id: 'previous-run',
+    started_at: '2026-11-03T01:00:00.000Z', finished_at: '2026-11-03T01:00:00.000Z',
+    status: 'completed', source: { model: 'gpt-6.1-sol', provider: 'openai' },
+    configured_model: 'gpt-6.1-sol', ...overrides,
+  };
+}
+
+const currentSettings = async () => ({ model: 'gpt-6.1-sol', provider: 'openai', effort: 'high', cwd: '/tmp' });
+
+test('skips a probe when the same model finished within the last hour', async t => {
+  const directory = await temporary(t);
+  await writeFile(path.join(directory, 'previous.json'), JSON.stringify(previousRun()));
+  let probed = false;
+  const output = await runHook(event, {
+    directory, env: {}, now: NOW, getSettings: currentSettings,
+    runProbe: async () => { probed = true; return { status: 'skipped', reason: 'fixture' }; },
+  });
+  assert.equal(output, null);
+  assert.equal(probed, false);
+  assert.deepEqual(await readdir(directory), ['previous.json']);
+});
+
+test('does not skip for a stale, different-model, or failed result', async t => {
+  for (const [name, overrides] of [
+    ['stale', { finished_at: '2026-11-03T00:29:59.000Z' }],
+    ['different model', { source: { model: 'gpt-6-astra', provider: 'openai' }, configured_model: 'gpt-6-astra' }],
+    ['different provider', { source: { model: 'gpt-6.1-sol', provider: 'custom' } }],
+    ['failed', { status: 'failed' }],
+  ]) {
+    const directory = await temporary(t);
+    await writeFile(path.join(directory, 'previous.json'), JSON.stringify(previousRun(overrides)));
+    let probed = false;
+    await runHook(event, {
+      directory, env: {}, now: NOW, getSettings: currentSettings,
+      runProbe: async () => { probed = true; return { status: 'skipped', reason: 'fixture' }; },
+    });
+    assert.equal(probed, true, name);
+  }
+});
+
 test('a dead worker lock can be recovered', async t => {
   const directory = await temporary(t);
   await writeFile(path.join(directory, 'test-thread.lock'), JSON.stringify({ pid: 2147483647 }));

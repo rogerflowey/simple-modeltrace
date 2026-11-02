@@ -10,6 +10,7 @@ Lightweight background model fingerprint verification for Codex. Automatically v
 - **Automatic & Non-blocking**: Probes in the background on session start/resume without delaying your conversation.
 - **Instant Mismatch Warnings**: Alerts you immediately if the responding model differs from what's configured.
 - **Independent Probes**: Ephemeral threads run one numerical challenge without changing the active conversation. Probes consume model tokens and may count toward your provider's usage or billing.
+- **Recent-result Reuse**: If a completed test on the same model/provider finished within the last hour, a new session skips the probe and reuses that result.
 - **Token Usage Monitoring**: Track reported input, cached input, output, and reasoning tokens per sample, run, session, and model.
 - **Zero Dependencies**: Pure Node.js (>=22) and Python 3 stdlib. Uses existing Codex authentication.
 

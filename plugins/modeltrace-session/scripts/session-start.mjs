@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { analyzeGlobalOutputs, parseNumbers } from '../vendor/fingerprint-core.mjs';
 import { connect, generate } from './client.mjs';
 import { readDaemonThread } from './daemon.mjs';
-import { atomicJson, dataDirectory, loadRuns, workerAlive, workerIdentity } from './records.mjs';
+import { atomicJson, dataDirectory, loadRuns, recentFinishedRuns, workerAlive, workerIdentity } from './records.mjs';
 import { briefReport, completionReport, finding, report, timestamp, phase as describePhase } from './report.mjs';
 import { sampleUsage } from './usage.mjs';
 export { atomicJson } from './records.mjs';
@@ -50,10 +50,16 @@ export async function sourceSettings(input, openClient = connect, readLive = rea
   throw lastError;
 }
 
+function sameModel(source, run) {
+  const runModel = run.source?.model || run.configured_model;
+  const runProvider = run.source?.provider;
+  return runModel === source.model && (!runProvider || !source.provider || runProvider === source.provider);
+}
+
 export async function probe(input, { openClient = connect, makeChallenges = challenges, getSettings = sourceSettings,
-  onProgress = async () => {},
+  onProgress = async () => {}, source: resolvedSource,
 } = {}) {
-  const source = await getSettings(input, openClient);
+  const source = resolvedSource ?? await getSettings(input, openClient);
   if (!source) return { status: 'skipped', reason: 'subagent' };
   const bank = JSON.parse(await readFile(path.join(ROOT, 'vendor/unified_bank.json'), 'utf8'));
   const reference_match = referenceForModel(bank, source.model);
@@ -129,7 +135,9 @@ export async function startupNotice(input, env = process.env) {
   return last ? { systemMessage: `ModelTrace · testing in background · !modeltrace status\n${last}` } : null;
 }
 
-export async function runHook(input, { directory, runProbe = probe, env = process.env } = {}) {
+export async function runHook(input, { directory, runProbe = probe, env = process.env,
+  getSettings = sourceSettings, recentRuns = recentFinishedRuns, now = Date.now(),
+} = {}) {
   directory ??= dataDirectory(env);
   if (!eligible(input, env)) return null;
   if (!/^[a-zA-Z0-9_-]{1,150}$/.test(input.session_id)) throw new Error('Invalid session ID');
@@ -145,10 +153,18 @@ export async function runHook(input, { directory, runProbe = probe, env = proces
       if (await workerAlive(existing)) return null;
       await unlink(lockPath);
     } catch { return null; }
-    return runHook(input, { directory, runProbe, env });
+    return runHook(input, { directory, runProbe, env, getSettings, recentRuns, now });
   }
   let record;
   try {
+    let source = null;
+    try {
+      const recent = await recentRuns({ directories: [directory], env, now });
+      if (recent.length) {
+        source = await getSettings(input);
+        if (source && recent.some(run => sameModel(source, run))) return null;
+      }
+    } catch {}
     const worker = await workerIdentity();
     const runId = `${Date.now()}-${randomUUID()}`;
     const startedAt = new Date().toISOString();
@@ -156,7 +172,7 @@ export async function runHook(input, { directory, runProbe = probe, env = proces
     record = { schema_version: 3, session_id: input.session_id, source_event: input.source, run_id: runId,
       started_at: startedAt, updated_at: startedAt, deadline_at: new Date(Date.parse(startedAt) + 600_000).toISOString(),
       status: 'running', phase: 'starting', worker,
-      configured_model: input.model || null, samples_completed: 0, samples_total: SAMPLE_COUNT, samples: [],
+      configured_model: source?.model || input.model || null, samples_completed: 0, samples_total: SAMPLE_COUNT, samples: [],
       usage: sampleUsage([]),
       events: [{ at: startedAt, message: 'Reading session settings' }] };
     const filename = path.join(directory, `${input.session_id}-${runId}.json`);
@@ -166,7 +182,7 @@ export async function runHook(input, { directory, runProbe = probe, env = proces
       record.events.push({ at: record.updated_at, message });
       await atomicJson(filename, record);
     };
-    try { Object.assign(record, await runProbe(input, { onProgress })); }
+    try { Object.assign(record, await runProbe(input, { onProgress, source })); }
     catch (error) { Object.assign(record, { status: 'failed', error: error.message, failure_stage: describePhase(record) }); }
     record.finished_at = new Date().toISOString();
     record.updated_at = record.finished_at;

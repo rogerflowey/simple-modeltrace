@@ -104,3 +104,14 @@ export async function loadRuns({ directories, env = process.env, sessionId } = {
   runs.sort((a, b) => Date.parse(b.started_at) - Date.parse(a.started_at) || b.run_id.localeCompare(a.run_id));
   return { runs, warnings, directories };
 }
+
+export const RECENT_TEST_WINDOW_MS = 60 * 60 * 1000;
+
+export async function recentFinishedRuns({ directories, env = process.env, withinMs = RECENT_TEST_WINDOW_MS, now = Date.now() } = {}) {
+  const { runs } = await loadRuns({ directories, env });
+  return runs.filter(run => {
+    if (run.status !== 'completed') return false;
+    const finished = Date.parse(run.finished_at || run.updated_at || run.started_at);
+    return Number.isFinite(finished) && finished <= now && now - finished < withinMs;
+  });
+}
