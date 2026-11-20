@@ -63,4 +63,4 @@ Consistent results are saved silently. Warnings appear only for unexpected finge
 
 ## License
 
-[MIT](LICENSE). Scoring logic and candidate reference bank vendored from [ModelTrace](https://github.com/xqy2006/ModelTrace) under its [MIT license](plugins/modeltrace-session/vendor/LICENSE.ModelTrace).
+[MIT](LICENSE). The scorer and base reference data come from [ModelTrace](https://github.com/xqy2006/ModelTrace). The GPT-6.2 Astra and Sol reference responses come from [lm-detector](https://github.com/Ikaleio/lm-detector), collected through OpenRouter’s OpenAI route at `low` reasoning effort. The [upstream MIT notice](plugins/modeltrace-session/vendor/LICENSE.ModelTrace) and [source revisions and checksums](plugins/modeltrace-session/vendor/provenance.json) are included with the bank.

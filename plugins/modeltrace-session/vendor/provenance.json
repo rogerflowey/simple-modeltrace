@@ -5,12 +5,27 @@
     "fingerprint-core.mjs": "83fa5bd611e18f8339122582335123c8ea168ed242298bb31f4e363abeeb6e4a",
     "challenges.py": "293dc91c849e7d722a3e4850fdcf266a7aa6b5f8cfc629ce73e47d3a850b9fc3",
     "LICENSE.ModelTrace": "238afb57e498990742f84b9ce6167b4e256ac06104a9938ce953bc41c14bea51",
-    "unified_bank.json": "786acdfc5ad5250da95a002d241ff5b569863ab0eb7d88bb77d01a12eac79d13"
+    "unified_bank.json": "e26eec4a63010a9498a80dd43aff04bd4b397d27960048302930d5f5525437fe"
   },
   "patches": {
     "unified_bank.json": {
       "upstream_sha256": "f267d0513aa06981d024ec5394746fceddf44e4e8a75fa6bf8304255f4b32d6d",
-      "description": "Add the gpt-6.1-sol alias and shared display label to the existing gpt-6-astra entry. No samples or numerical parameters changed."
+      "description": "Rebuilt with ModelTrace's bank_builder.py from its original GPT and Claude reference rows plus 36 responses each for gpt-6.2-astra and gpt-6.2-sol. The gpt-6-astra entry includes the gpt-6.1-sol alias and shared display label.",
+      "upstream_reference_files": {
+        "data/gpt_reference.jsonl": "b87e5630286308fdcec0893b89873635bf274b64a5269f41039eb46e66d3793f",
+        "data/claude_reference.jsonl": "13e5a9b266fefb96282e9857a53e3b408146dade66ca6220fa593fdff270d8a8"
+      },
+      "additional_reference": {
+        "repository": "https://github.com/Ikaleio/lm-detector",
+        "commit": "70159b7536a2ceb55c478c8c9472da81d3627e59",
+        "provider": "openrouter/openai",
+        "api": "responses",
+        "reasoning_effort": "low",
+        "files": {
+          "data/collections/gpt-6.2-astra-openrouter-openai-low-20261118/result.json": "0053fd35e06c121498e5076f0b5959c36689b8695e35bd8c4cb611478bfc2449",
+          "data/collections/gpt-6.2-sol-openrouter-openai-low-20261118/result.json": "4a504ee486d8b0b0080c641ca2949eb52b37adff1d486bbac8f265f5e204d12c"
+        }
+      }
     }
   }
 }
